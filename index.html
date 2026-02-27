@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="AI-Driven Defect Detection System — Real-time product inspection using smartphone cameras and on-device AI.">
+    <title>DefectAI — Smart Defect Detection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.4/dist/knn-classifier.min.js"></script>
+</head>
+<body>
+    <!-- ========== LOADING OVERLAY ========== -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loader-content">
+            <div class="loader-ring">
+                <div class="ring-segment"></div>
+                <div class="ring-segment"></div>
+                <div class="ring-segment"></div>
+            </div>
+            <h2 class="loader-title">DefectAI</h2>
+            <p class="loader-status" id="loading-status">Initializing system...</p>
+            <div class="loader-bar">
+                <div class="loader-bar-fill" id="loading-progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== MAIN APP ========== -->
+    <div id="app" class="app hidden">
+
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 8v4l2 2"/>
+                        <path d="M8 12h0"/>
+                        <path d="M16 12h0"/>
+                    </svg>
+                    <span class="logo-text">Defect<span class="accent">AI</span></span>
+                </div>
+            </div>
+            <div class="header-center">
+                <div class="model-status" id="model-status">
+                    <span class="status-dot loading"></span>
+                    <span class="status-label">Loading Model...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-icon" id="btn-toggle-training" title="Training Panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                    </svg>
+                </button>
+                <button class="btn btn-icon" id="btn-toggle-history" title="Inspection History">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+
+            <!-- LEFT: Video + Status -->
+            <section class="video-section">
+                <!-- Video Container -->
+                <div class="video-container" id="video-container">
+                    <video id="camera-feed" autoplay playsinline muted></video>
+                    <canvas id="overlay-canvas"></canvas>
+                    <div class="video-badge" id="video-badge">
+                        <span class="badge-dot"></span>
+                        <span>LIVE</span>
+                    </div>
+                    <div class="no-camera" id="no-camera">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                            <circle cx="12" cy="13" r="4"/>
+                        </svg>
+                        <p>Camera access required</p>
+                        <button class="btn btn-primary" id="btn-start-camera">Enable Camera</button>
+                    </div>
+                </div>
+
+                <!-- Status Bar -->
+                <div class="status-bar" id="status-bar">
+                    <div class="status-indicator" id="status-indicator">
+                        <div class="status-icon-wrap" id="status-icon-wrap">
+                            <svg id="icon-ok" class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <svg id="icon-defect" class="status-icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            <svg id="icon-idle" class="status-icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                        </div>
+                        <div class="status-text">
+                            <span class="status-label-main" id="status-label">IDLE</span>
+                            <span class="status-sublabel" id="status-sublabel">Waiting for product...</span>
+                        </div>
+                    </div>
+                    <div class="confidence-meter" id="confidence-section">
+                        <span class="confidence-label">Confidence</span>
+                        <div class="confidence-bar-bg">
+                            <div class="confidence-bar-fill" id="confidence-bar" style="width:0%"></div>
+                        </div>
+                        <span class="confidence-value" id="confidence-value">—</span>
+                    </div>
+                </div>
+
+                <!-- Detection Details -->
+                <div class="detection-details" id="detection-details">
+                    <div class="detection-tags" id="detection-tags">
+                        <!-- Filled dynamically -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT: Stats -->
+            <aside class="stats-section">
+                <!-- Quick Stats -->
+                <div class="card stats-card">
+                    <h3 class="card-title">Inspection Statistics</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-value" id="stat-total">0</span>
+                            <span class="stat-label">Total Inspected</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value text-green" id="stat-ok">0</span>
+                            <span class="stat-label">Passed</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value text-red" id="stat-defective">0</span>
+                            <span class="stat-label">Defective</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value text-amber" id="stat-defect-rate">0%</span>
+                            <span class="stat-label">Defect Rate</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category Breakdown -->
+                <div class="card category-card">
+                    <h3 class="card-title">Defect Breakdown</h3>
+                    <div class="category-list" id="category-breakdown">
+                        <div class="category-row">
+                            <span class="cat-color" style="background:var(--clr-scratch)"></span>
+                            <span class="cat-name">Scratch</span>
+                            <span class="cat-count" id="cat-scratch">0</span>
+                        </div>
+                        <div class="category-row">
+                            <span class="cat-color" style="background:var(--clr-crack)"></span>
+                            <span class="cat-name">Crack</span>
+                            <span class="cat-count" id="cat-crack">0</span>
+                        </div>
+                        <div class="category-row">
+                            <span class="cat-color" style="background:var(--clr-wrong-color)"></span>
+                            <span class="cat-name">Wrong Color</span>
+                            <span class="cat-count" id="cat-wrong_color">0</span>
+                        </div>
+                        <div class="category-row">
+                            <span class="cat-color" style="background:var(--clr-misalignment)"></span>
+                            <span class="cat-name">Misalignment</span>
+                            <span class="cat-count" id="cat-misalignment">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detection Controls -->
+                <div class="card controls-card">
+                    <h3 class="card-title">Controls</h3>
+                    <div class="controls-group">
+                        <label class="control-row">
+                            <span>Detection Active</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="toggle-detection" checked>
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </label>
+                        <label class="control-row">
+                            <span>Auto-Save Results</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="toggle-autosave" checked>
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </label>
+                        <label class="control-row">
+                            <span>Sound Alerts</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="toggle-sound">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </label>
+                    </div>
+                    <button class="btn btn-outline full-width mt-12" id="btn-reset-stats">Reset Statistics</button>
+                </div>
+            </aside>
+        </main>
+
+        <!-- ========== TRAINING PANEL (Slide-in) ========== -->
+        <div class="slide-panel" id="training-panel">
+            <div class="panel-header">
+                <h2>Training Center</h2>
+                <button class="btn btn-icon btn-close-panel" id="btn-close-training">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="panel-body">
+                <p class="panel-desc">Add example images for each category. The AI learns from these examples to detect defects. More examples = better accuracy.</p>
+
+                <!-- Category selector -->
+                <div class="form-group">
+                    <label class="form-label">Select Category</label>
+                    <select class="form-select" id="training-category">
+                        <option value="ok">✅ OK (No defect)</option>
+                        <option value="scratch">🔸 Scratch</option>
+                        <option value="crack">🔴 Crack</option>
+                        <option value="wrong_color">🟣 Wrong Color</option>
+                        <option value="misalignment">🟠 Misalignment</option>
+                    </select>
+                </div>
+
+                <!-- Capture / Upload -->
+                <div class="training-actions">
+                    <button class="btn btn-primary" id="btn-capture-example">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <circle cx="12" cy="12" r="10"/>
+                            <circle cx="12" cy="12" r="4"/>
+                        </svg>
+                        Capture Frame
+                    </button>
+                    <label class="btn btn-secondary" for="file-upload-examples">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        Upload Images
+                    </label>
+                    <input type="file" id="file-upload-examples" accept="image/*" multiple hidden>
+                </div>
+
+                <!-- Example counts -->
+                <div class="training-counts" id="training-counts">
+                    <h4>Training Data</h4>
+                    <div class="count-grid" id="example-count-grid">
+                        <!-- Filled dynamically -->
+                    </div>
+                    <div class="training-status" id="training-status">
+                        <span class="training-status-dot"></span>
+                        <span id="training-status-text">Add examples to enable detection</span>
+                    </div>
+                </div>
+
+                <!-- Add custom category -->
+                <div class="form-group mt-24">
+                    <label class="form-label">Add New Category</label>
+                    <div class="input-row">
+                        <input type="text" class="form-input" id="new-category-name" placeholder="Category name...">
+                        <button class="btn btn-secondary" id="btn-add-category">Add</button>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="training-footer">
+                    <button class="btn btn-outline" id="btn-clear-training">Clear All Training Data</button>
+                    <button class="btn btn-primary" id="btn-save-model">Save Model</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== HISTORY PANEL (Slide-in) ========== -->
+        <div class="slide-panel" id="history-panel">
+            <div class="panel-header">
+                <h2>Inspection History</h2>
+                <button class="btn btn-icon btn-close-panel" id="btn-close-history">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="panel-body">
+                <div class="history-controls">
+                    <button class="btn btn-outline btn-sm" id="btn-export-history">Export CSV</button>
+                    <button class="btn btn-outline btn-sm btn-danger" id="btn-clear-history">Clear History</button>
+                </div>
+                <div class="history-list" id="history-list">
+                    <div class="history-empty" id="history-empty">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                        <p>No inspections yet</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backdrop for panels -->
+        <div class="panel-backdrop" id="panel-backdrop"></div>
+    </div>
+
+    <!-- App Scripts (ES Modules) -->
+    <script src="js/storage.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/detector.js"></script>
+    <script src="js/inspector.js"></script>
+    <script src="js/training.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
